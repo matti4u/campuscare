@@ -1,0 +1,673 @@
+import tkinter as tk
+from tkinter import ttk, messagebox, simpledialog
+import psycopg2
+
+
+# =========================================================
+# DATABASE CONNECTION
+# =========================================================
+
+def connect_db():
+    return psycopg2.connect(
+        host="localhost",
+        database="campus_care",
+        user="postgres",
+        password="09365877Jan",
+        port="5432"
+    )
+
+
+# =========================================================
+# LOAD REQUESTS
+# =========================================================
+
+def load_requests():
+
+    for item in request_table.get_children():
+        request_table.delete(item)
+
+    try:
+
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """ SELECT request_id, requester_name, category, location, description, priority, approval_status, status, date_reported FROM maintenance_requests ORDER BY request_id DESC; """
+        )
+
+        rows = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+        for row in rows:
+
+            date_text = ""
+
+            if row[8]:
+                date_text = row[8].strftime(
+                    "%Y-%m-%d %H:%M"
+                )
+
+            request_table.insert(
+                "",
+                tk.END,
+                values=(
+                    row[0],
+                    row[1],
+                    row[2],
+                    row[3],
+                    row[4],
+                    row[5],
+                    row[6],
+                    row[7],
+                    date_text
+                )
+            )
+
+    except Exception as e:
+
+        messagebox.showerror(
+            "Database Error",
+            f"Could not load requests:\n\n{e}"
+        )
+
+
+# =========================================================
+# UPDATE APPROVAL
+# =========================================================
+
+def update_approval():
+
+    selected = request_table.selection()
+    if not selected:
+        messagebox.showwarning(
+            "No Request Selected", "Please select a request first."
+        )
+        return
+
+    selected_item = request_table.item(selected[0])
+    request_id = selected_item["values"][0]
+    new_approval = approval_combo.get().strip()
+
+    if not new_approval:
+        messagebox.showwarning(
+            "No Approval Status", "Please select an approval status."
+        )
+        return
+
+    rejection_reason = None
+    if new_approval.lower() == "rejected":
+        rejection_reason = simpledialog.askstring(
+            "Rejection Reason",
+            f"Enter the reason for rejecting request #{request_id}:",
+            parent=window
+        )
+        if rejection_reason is None:
+            return
+        rejection_reason = rejection_reason.strip()
+        if not rejection_reason:
+            messagebox.showwarning(
+                "Reason Required",
+                "Please enter a reason before rejecting this request."
+            )
+            return
+
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            """ UPDATE maintenance_requests SET approval_status = %s, rejection_reason = %s WHERE request_id = %s; """,
+            (new_approval, rejection_reason, request_id)
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        success_text = (
+            f"Request #{request_id} approval has been updated to:\n\n"
+            f"{new_approval}"
+        )
+        if new_approval.lower() == "rejected":
+            success_text += (
+                "\n\nThe rejection reason is saved and will appear "
+                "when the student checks the request status."
+            )
+        messagebox.showinfo("Success", success_text)
+        load_requests()
+
+    except Exception as e:
+        messagebox.showerror(
+            "Database Error", f"Could not update approval:\n\n{e}"
+        )
+
+
+# =========================================================
+# UPDATE MAINTENANCE STATUS
+# =========================================================
+
+def update_status():
+
+    selected = request_table.selection()
+
+    if not selected:
+
+        messagebox.showwarning(
+            "No Request Selected",
+            "Please select a request first."
+        )
+
+        return
+
+    selected_item = request_table.item(selected[0])
+
+    request_id = selected_item["values"][0]
+
+    new_status = status_combo.get()
+
+    if not new_status:
+
+        messagebox.showwarning(
+            "No Status",
+            "Please select a maintenance status."
+        )
+
+        return
+
+    try:
+
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """ UPDATE maintenance_requests SET status = %s WHERE request_id = %s; """,
+            (
+                new_status,
+                request_id
+            )
+        )
+
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        messagebox.showinfo(
+            "Success",
+            f"Request #{request_id} maintenance status has been updated to:\n\n"
+            f"{new_status}"
+        )
+
+        load_requests()
+
+    except Exception as e:
+
+        messagebox.showerror(
+            "Database Error",
+            f"Could not update status:\n\n{e}"
+        )
+
+
+# =========================================================
+# SEARCH REQUESTS
+# =========================================================
+
+def search_requests():
+
+    search_text = search_entry.get().strip()
+
+    for item in request_table.get_children():
+        request_table.delete(item)
+
+    try:
+
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """ SELECT request_id, requester_name, category, location, description, priority, approval_status, status, date_reported FROM maintenance_requests WHERE CAST(request_id AS TEXT) ILIKE %s OR requester_name ILIKE %s OR category ILIKE %s OR location ILIKE %s OR approval_status ILIKE %s OR status ILIKE %s ORDER BY request_id DESC; """,
+            (
+                "%" + search_text + "%",
+                "%" + search_text + "%",
+                "%" + search_text + "%",
+                "%" + search_text + "%",
+                "%" + search_text + "%",
+                "%" + search_text + "%"
+            )
+        )
+
+        rows = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+        for row in rows:
+
+            date_text = ""
+
+            if row[8]:
+                date_text = row[8].strftime(
+                    "%Y-%m-%d %H:%M"
+                )
+
+            request_table.insert(
+                "",
+                tk.END,
+                values=(
+                    row[0],
+                    row[1],
+                    row[2],
+                    row[3],
+                    row[4],
+                    row[5],
+                    row[6],
+                    row[7],
+                    date_text
+                )
+            )
+
+    except Exception as e:
+
+        messagebox.showerror(
+            "Database Error",
+            f"Search failed:\n\n{e}"
+        )
+
+
+# =========================================================
+# CLEAR SEARCH
+# =========================================================
+
+def clear_search():
+
+    search_entry.delete(0, tk.END)
+
+    load_requests()
+
+
+# =========================================================
+# ADMIN WINDOW
+# =========================================================
+
+window = tk.Tk()
+
+window.title("CAMPUSCARE - Admin Dashboard")
+window.geometry("1400x750")
+
+window.minsize(1100, 650)
+
+
+# =========================================================
+# TITLE
+# =========================================================
+
+title_label = tk.Label(
+    window,
+    text="CAMPUSCARE ADMIN DASHBOARD",
+    font=("Arial", 22, "bold")
+)
+
+title_label.pack(
+    pady=(20, 5)
+)
+
+
+subtitle_label = tk.Label(
+    window,
+    text="Maintenance Request Management System",
+    font=("Arial", 11)
+)
+
+subtitle_label.pack(
+    pady=(0, 15)
+)
+
+
+# =========================================================
+# CONTROL FRAME
+# =========================================================
+
+control_frame = tk.LabelFrame(
+    window,
+    text="Admin Controls",
+    font=("Arial", 11, "bold"),
+    padx=10,
+    pady=10
+)
+
+control_frame.pack(
+    fill="x",
+    padx=20,
+    pady=10
+)
+
+
+# =========================================================
+# SEARCH
+# =========================================================
+
+tk.Label(
+    control_frame,
+    text="Search:"
+).pack(
+    side="left",
+    padx=5
+)
+
+
+search_entry = tk.Entry(
+    control_frame,
+    width=30
+)
+
+search_entry.pack(
+    side="left",
+    padx=5
+)
+
+
+search_button = tk.Button(
+    control_frame,
+    text="SEARCH",
+    command=search_requests,
+    width=10
+)
+
+search_button.pack(
+    side="left",
+    padx=5
+)
+
+
+clear_search_button = tk.Button(
+    control_frame,
+    text="CLEAR",
+    command=clear_search,
+    width=10
+)
+
+clear_search_button.pack(
+    side="left",
+    padx=5
+)
+
+
+refresh_button = tk.Button(
+    control_frame,
+    text="REFRESH",
+    command=load_requests,
+    width=10
+)
+
+refresh_button.pack(
+    side="left",
+    padx=5
+)
+
+
+# =========================================================
+# APPROVAL DROPDOWN
+# =========================================================
+
+tk.Label(
+    control_frame,
+    text="Approval:"
+).pack(
+    side="left",
+    padx=(30, 5)
+)
+
+
+approval_combo = ttk.Combobox(
+    control_frame,
+    values=[
+        "Pending",
+        "Approved",
+        "Rejected"
+    ],
+    width=15,
+    state="readonly"
+)
+
+approval_combo.set("Pending")
+
+approval_combo.pack(
+    side="left",
+    padx=5
+)
+
+
+approval_button = tk.Button(
+    control_frame,
+    text="UPDATE APPROVAL",
+    command=update_approval,
+    width=18
+)
+
+approval_button.pack(
+    side="left",
+    padx=5
+)
+
+
+# =========================================================
+# MAINTENANCE STATUS
+# =========================================================
+
+tk.Label(
+    control_frame,
+    text="Maintenance Status:"
+).pack(
+    side="left",
+    padx=(30, 5)
+)
+
+
+status_combo = ttk.Combobox(
+    control_frame,
+    values=[
+        "Reported",
+        "Inspected",
+        "Under Repair",
+        "Completed"
+    ],
+    width=15,
+    state="readonly"
+)
+
+status_combo.set("Reported")
+
+status_combo.pack(
+    side="left",
+    padx=5
+)
+
+
+status_button = tk.Button(
+    control_frame,
+    text="UPDATE STATUS",
+    command=update_status,
+    width=15
+)
+
+status_button.pack(
+    side="left",
+    padx=5
+)
+
+
+# =========================================================
+# TABLE FRAME
+# =========================================================
+
+table_frame = tk.Frame(window)
+
+table_frame.pack(
+    fill="both",
+    expand=True,
+    padx=20,
+    pady=10
+)
+
+
+# =========================================================
+# TABLE COLUMNS
+# =========================================================
+
+columns = (
+    "ID",
+    "Requester",
+    "Category",
+    "Location",
+    "Description",
+    "Priority",
+    "Approval",
+    "Status",
+    "Date Reported"
+)
+
+
+request_table = ttk.Treeview(
+    table_frame,
+    columns=columns,
+    show="headings"
+)
+
+
+# =========================================================
+# COLUMN HEADINGS
+# =========================================================
+
+for column in columns:
+
+    request_table.heading(
+        column,
+        text=column
+    )
+
+
+# =========================================================
+# COLUMN WIDTHS
+# =========================================================
+
+request_table.column(
+    "ID",
+    width=60,
+    anchor="center"
+)
+
+request_table.column(
+    "Requester",
+    width=150
+)
+
+request_table.column(
+    "Category",
+    width=120
+)
+
+request_table.column(
+    "Location",
+    width=150
+)
+
+request_table.column(
+    "Description",
+    width=300
+)
+
+request_table.column(
+    "Priority",
+    width=90,
+    anchor="center"
+)
+
+request_table.column(
+    "Approval",
+    width=100,
+    anchor="center"
+)
+
+request_table.column(
+    "Status",
+    width=120,
+    anchor="center"
+)
+
+request_table.column(
+    "Date Reported",
+    width=150,
+    anchor="center"
+)
+
+
+# =========================================================
+# SCROLLBARS
+# =========================================================
+
+vertical_scrollbar = ttk.Scrollbar(
+    table_frame,
+    orient="vertical",
+    command=request_table.yview
+)
+
+horizontal_scrollbar = ttk.Scrollbar(
+    table_frame,
+    orient="horizontal",
+    command=request_table.xview
+)
+
+
+request_table.configure(
+    yscrollcommand=vertical_scrollbar.set,
+    xscrollcommand=horizontal_scrollbar.set
+)
+
+
+vertical_scrollbar.pack(
+    side="right",
+    fill="y"
+)
+
+horizontal_scrollbar.pack(
+    side="bottom",
+    fill="x"
+)
+
+request_table.pack(
+    side="left",
+    fill="both",
+    expand=True
+)
+
+
+# =========================================================
+# INSTRUCTIONS
+# =========================================================
+
+instruction_label = tk.Label(
+    window,
+    text=(
+        "Select a request from the table, choose an Approval or "
+        "Maintenance Status, then click the corresponding update button."
+    ),
+    font=("Arial", 9)
+)
+
+instruction_label.pack(
+    pady=8
+)
+
+
+# =========================================================
+# LOAD DATA WHEN ADMIN APP STARTS
+# =========================================================
+
+load_requests()
+
+
+# =========================================================
+# RUN PROGRAM
+# =========================================================
+
+window.mainloop()
