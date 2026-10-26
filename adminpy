@@ -1,0 +1,595 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import psycopg2
+
+
+# =========================================================
+# DATABASE CONNECTION
+# =========================================================
+
+def connect_db():
+    return psycopg2.connect(
+        host="localhost",
+        database="campus_care",
+        user="postgres",
+        password="09365877Jan",
+        port="5432"
+    )
+
+
+# =========================================================
+# SUBMIT REQUEST
+# =========================================================
+
+def submit_request():
+
+    name = name_entry.get().strip()
+    category = category_combo.get().strip()
+    location = location_entry.get().strip()
+    priority = priority_combo.get().strip()
+    description = description_text.get("1.0", tk.END).strip()
+
+    if not name or not category or not location or not description:
+        messagebox.showwarning(
+            "Incomplete Information",
+            "Please fill in all required fields."
+        )
+        return
+
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """ INSERT INTO maintenance_requests ( requester_name, category, location, description, priority, approval_status, status ) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING request_id; """,
+            (
+                name,
+                category,
+                location,
+                description,
+                priority,
+                "Pending",
+                "Reported"
+            )
+        )
+
+        request_id = cursor.fetchone()[0]
+
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        messagebox.showinfo(
+            "Request Submitted",
+            f"Your maintenance request was submitted successfully!\n\n"
+            f"Request ID: {request_id}\n"
+            f"Approval: Pending\n"
+            f"Maintenance Status: Reported\n\n"
+            f"Please save your Request ID so you can track your request."
+        )
+
+        clear_form()
+
+    except Exception as e:
+
+        messagebox.showerror(
+            "Database Error",
+            f"An error occurred:\n\n{e}"
+        )
+
+
+# =========================================================
+# CLEAR FORM
+# =========================================================
+
+def clear_form():
+
+    name_entry.delete(0, tk.END)
+    category_combo.set("")
+    location_entry.delete(0, tk.END)
+    priority_combo.set("Medium")
+    description_text.delete("1.0", tk.END)
+
+
+# =========================================================
+# CHECK REQUEST STATUS
+# =========================================================
+
+def check_my_request():
+
+    request_id = request_id_entry.get().strip()
+    requester_name = tracking_name_entry.get().strip()
+
+    if not request_id or not requester_name:
+        messagebox.showwarning(
+            "Missing Information",
+            "Please enter your Request ID and name."
+        )
+        return
+
+    try:
+
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """ SELECT request_id, requester_name, category, location, description, priority, approval_status, status, date_reported, rejection_reason FROM maintenance_requests WHERE request_id = %s AND requester_name ILIKE %s; """,
+            (
+                request_id,
+                requester_name
+            )
+        )
+
+        request = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if not request:
+
+            messagebox.showerror(
+                "Request Not Found",
+                "No request was found.\n\n"
+                "Please check your Request ID and name."
+            )
+
+            return
+
+        date_reported = request[8]
+        rejection_reason = request[9]
+
+        if date_reported:
+            date_text = date_reported.strftime("%Y-%m-%d %H:%M")
+        else:
+            date_text = "N/A"
+
+        status_window = tk.Toplevel(window)
+        status_window.title(f"CAMPUSCARE - Request #{request[0]} Status")
+        status_window.geometry("560x540")
+        status_window.resizable(False, False)
+
+        tk.Label(
+            status_window,
+            text="CAMPUSCARE REQUEST STATUS",
+            font=("Arial", 16, "bold")
+        ).pack(pady=(18, 12))
+
+        details_frame = tk.LabelFrame(
+            status_window, text="Request Details", padx=15, pady=12
+        )
+        details_frame.pack(fill="x", padx=20, pady=8)
+
+        details = (
+            ("Request ID", request[0]),
+            ("Requester", request[1]),
+            ("Category", request[2]),
+            ("Location", request[3]),
+            ("Priority", request[5]),
+            ("Date Reported", date_text),
+            ("Approval Status", request[6]),
+            ("Maintenance Status", request[7]),
+        )
+
+        for label_text, value in details:
+            row_frame = tk.Frame(details_frame)
+            row_frame.pack(fill="x", pady=3)
+            tk.Label(
+                row_frame, text=f"{label_text}:",
+                font=("Arial", 10, "bold"), width=19, anchor="w"
+            ).pack(side="left")
+            tk.Label(
+                row_frame, text=str(value), font=("Arial", 10),
+                anchor="w", wraplength=320, justify="left"
+            ).pack(side="left", fill="x", expand=True)
+
+        if str(request[6]).strip().lower() == "rejected":
+            feedback_frame = tk.LabelFrame(
+                status_window,
+                text="Admin Feedback / Rejection Reason",
+                font=("Arial", 11, "bold"), padx=12, pady=10
+            )
+            feedback_frame.pack(fill="both", expand=True, padx=20, pady=10)
+
+            tk.Label(
+                feedback_frame, text="Message from administrator:",
+                font=("Arial", 10, "bold")
+            ).pack(anchor="w", pady=(0, 6))
+
+            feedback_box = tk.Text(
+                feedback_frame, height=5, wrap="word", font=("Arial", 10)
+            )
+            feedback_box.pack(fill="both", expand=True)
+            feedback_box.insert(
+                "1.0",
+                rejection_reason.strip()
+                if rejection_reason and rejection_reason.strip()
+                else "The administrator has not provided a rejection reason yet."
+            )
+            feedback_box.config(state="disabled")
+        else:
+            tk.Label(
+                status_window,
+                text="Rejection feedback will appear here if this request is rejected.",
+                font=("Arial", 9), fg="gray"
+            ).pack(pady=12)
+
+    except Exception as e:
+
+        messagebox.showerror(
+            "Database Error",
+            f"An error occurred:\n\n{e}"
+        )
+
+
+# =========================================================
+# STUDENT WINDOW
+# =========================================================
+
+window = tk.Tk()
+
+window.title("CAMPUSCARE - Student Maintenance Request")
+window.geometry("850x750")
+window.resizable(False, False)
+
+
+# =========================================================
+# TITLE
+# =========================================================
+
+title_label = tk.Label(
+    window,
+    text="CAMPUSCARE",
+    font=("Arial", 24, "bold")
+)
+
+title_label.pack(pady=(20, 5))
+
+
+subtitle_label = tk.Label(
+    window,
+    text="School Facility Maintenance Tracker",
+    font=("Arial", 12)
+)
+
+subtitle_label.pack(pady=(0, 20))
+
+
+# =========================================================
+# SUBMIT REQUEST FRAME
+# =========================================================
+
+request_frame = tk.LabelFrame(
+    window,
+    text="Submit Maintenance Request",
+    font=("Arial", 12, "bold"),
+    padx=20,
+    pady=20
+)
+
+request_frame.pack(
+    fill="x",
+    padx=40,
+    pady=10
+)
+
+
+# =========================================================
+# REQUESTER NAME
+# =========================================================
+
+tk.Label(
+    request_frame,
+    text="Requester Name:",
+    font=("Arial", 10)
+).grid(
+    row=0,
+    column=0,
+    sticky="w",
+    padx=5,
+    pady=8
+)
+
+name_entry = tk.Entry(
+    request_frame,
+    width=40
+)
+
+name_entry.grid(
+    row=0,
+    column=1,
+    padx=10,
+    pady=8
+)
+
+
+# =========================================================
+# CATEGORY
+# =========================================================
+
+tk.Label(
+    request_frame,
+    text="Problem Category:",
+    font=("Arial", 10)
+).grid(
+    row=1,
+    column=0,
+    sticky="w",
+    padx=5,
+    pady=8
+)
+
+category_combo = ttk.Combobox(
+    request_frame,
+    values=[
+        "Electrical",
+        "Furniture",
+        "Plumbing",
+        "Equipment",
+        "Structural"
+    ],
+    width=37,
+    state="readonly"
+)
+
+category_combo.grid(
+    row=1,
+    column=1,
+    padx=10,
+    pady=8
+)
+
+
+# =========================================================
+# LOCATION
+# =========================================================
+
+tk.Label(
+    request_frame,
+    text="Location:",
+    font=("Arial", 10)
+).grid(
+    row=2,
+    column=0,
+    sticky="w",
+    padx=5,
+    pady=8
+)
+
+location_entry = tk.Entry(
+    request_frame,
+    width=40
+)
+
+location_entry.grid(
+    row=2,
+    column=1,
+    padx=10,
+    pady=8
+)
+
+
+# =========================================================
+# PRIORITY
+# =========================================================
+
+tk.Label(
+    request_frame,
+    text="Priority:",
+    font=("Arial", 10)
+).grid(
+    row=3,
+    column=0,
+    sticky="w",
+    padx=5,
+    pady=8
+)
+
+priority_combo = ttk.Combobox(
+    request_frame,
+    values=[
+        "Low",
+        "Medium",
+        "High"
+    ],
+    width=37,
+    state="readonly"
+)
+
+priority_combo.set("Medium")
+
+priority_combo.grid(
+    row=3,
+    column=1,
+    padx=10,
+    pady=8
+)
+
+
+# =========================================================
+# DESCRIPTION
+# =========================================================
+
+tk.Label(
+    request_frame,
+    text="Description:",
+    font=("Arial", 10)
+).grid(
+    row=4,
+    column=0,
+    sticky="nw",
+    padx=5,
+    pady=8
+)
+
+description_text = tk.Text(
+    request_frame,
+    width=40,
+    height=5
+)
+
+description_text.grid(
+    row=4,
+    column=1,
+    padx=10,
+    pady=8
+)
+
+
+# =========================================================
+# BUTTONS
+# =========================================================
+
+button_frame = tk.Frame(request_frame)
+
+button_frame.grid(
+    row=5,
+    column=0,
+    columnspan=2,
+    pady=15
+)
+
+
+submit_button = tk.Button(
+    button_frame,
+    text="SUBMIT REQUEST",
+    command=submit_request,
+    width=20,
+    height=2
+)
+
+submit_button.pack(
+    side="left",
+    padx=10
+)
+
+
+clear_button = tk.Button(
+    button_frame,
+    text="CLEAR",
+    command=clear_form,
+    width=15,
+    height=2
+)
+
+clear_button.pack(
+    side="left",
+    padx=10
+)
+
+
+# =========================================================
+# CHECK REQUEST STATUS
+# =========================================================
+
+tracking_frame = tk.LabelFrame(
+    window,
+    text="Check My Request",
+    font=("Arial", 12, "bold"),
+    padx=20,
+    pady=20
+)
+
+tracking_frame.pack(
+    fill="x",
+    padx=40,
+    pady=15
+)
+
+
+# =========================================================
+# REQUEST ID
+# =========================================================
+
+tk.Label(
+    tracking_frame,
+    text="Request ID:",
+    font=("Arial", 10)
+).grid(
+    row=0,
+    column=0,
+    padx=5,
+    pady=8
+)
+
+request_id_entry = tk.Entry(
+    tracking_frame,
+    width=18
+)
+
+request_id_entry.grid(
+    row=0,
+    column=1,
+    padx=10,
+    pady=8
+)
+
+
+# =========================================================
+# REQUESTER NAME
+# =========================================================
+
+tk.Label(
+    tracking_frame,
+    text="Your Name:",
+    font=("Arial", 10)
+).grid(
+    row=1,
+    column=0,
+    padx=5,
+    pady=8
+)
+
+tracking_name_entry = tk.Entry(
+    tracking_frame,
+    width=30
+)
+
+tracking_name_entry.grid(
+    row=1,
+    column=1,
+    padx=10,
+    pady=8
+)
+
+
+# =========================================================
+# CHECK STATUS BUTTON
+# =========================================================
+
+check_button = tk.Button(
+    tracking_frame,
+    text="CHECK STATUS",
+    command=check_my_request,
+    width=18,
+    height=2
+)
+
+check_button.grid(
+    row=0,
+    column=2,
+    rowspan=2,
+    padx=20
+)
+
+
+# =========================================================
+# FOOTER
+# =========================================================
+
+footer = tk.Label(
+    window,
+    text="CAMPUSCARE • School Facility Maintenance System",
+    font=("Arial", 9)
+)
+
+footer.pack(
+    pady=15
+)
+
+
+# =========================================================
+# RUN PROGRAM
+# =========================================================
+
+window.mainloop()
